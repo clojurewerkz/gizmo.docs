@@ -11,6 +11,8 @@ This guide will explain:
   * how to add new handlers, snippets and widgets
   * core concepts and conventions
 
+If you want to learn Gizmo vocabulary and basic concepts first, you can
+check out our [Basic Concepts](/articles/basic_concepts.html) guide.
 
 ## Gizmo overview
 
@@ -52,13 +54,49 @@ lein run --config config/development.clj
 Now you can visit `http://localhost:8080/` in browser, you should see a
 greeting message there.
 
+## Preparing layout
+
+Layout is a outlining template that's shared between several pages on your
+website. Usually it's a set of common surroundings of an HTML page, like
+`<head>`, page header and footer and so on. Typical layout would have a
+structure pretty much as follows:
+
+<p class="text-muted">./resources/templates/layouts/application.html</p>
+```html
+<html>
+  <head><!-- CSS imports, title, additional metadata  --></head>
+  <body>
+    <widget rel="my-webapp.widgets.shared/header" />
+
+    <div class="container">
+      <widget id="main-content" />
+    </div>
+
+    <widget rel="my-webapp.widgets.shared/footer />
+    <!-- JavaScript imports  -->
+  </body>
+</html>
+```
+
+To make the page more modular, we've split it to three widgets:
+__header__, __main-content__ and __footer__.
+
+Widget declaration consists of two (optional) parts:
+
+  * `rel` - specifies fully qualified name for the declared widget
+    (we'll learn a bit more about widgets in just a minute). Used for
+    widgets that do not change from page to page.
+  * `id` - unique identifier for widget to reference it from code.
+    used to inject widget `rel` dynamically in place of certain widget
+    on a per-handler basis.
+
 ## Adding new HTTP actions
 
 In order to create an HTML HTTP resopnse, you should create:
 
-  * a route that will trigger a call to handler
-  * a handler, that will specify widgets for page contents
-  * widget and snippet and a HTML template to tie them all together
+  * a `route` that will trigger a call to handler
+  * a `handler`, that will specify widgets for page contents
+  * `widget` and snippet and a HTML template to tie them all together
 
 ### Adding Route
 
@@ -84,7 +122,8 @@ argument (`request`) and provide a handler:
 
 ### Adding Handler
 
-Handler is a function that returns a hash with following keys:
+Handler is a function that receives an environment processed by all the
+middlewares and returns a hash with following keys:
 
   * `:status` - HTTP Response Code
   * `:headers` - HTTP Headers
@@ -97,16 +136,10 @@ Handler is a function that returns a hash with following keys:
   * `:response-hash` - JSON-serializable hash to be rendered as a
     response, only used during `:json` responses
 
-
-prepares the response and returns HTTP response code, response
-body and content type and hands it over to responder. Depending on
-response content type, an appropriate renderer is invoked (for
-exmaple, HTML or JSON).
-
-
-Handlers are usually split logically per-entity. There's no strict
-convention, but this is quite an intutive way, and we suggest to stick
-to that convention.
+Handlers are usually split logically per-entity (for example, all
+handlers for people would sit in `*.handlers.people` namespace. There's
+no  strict convention, but this is quite an intutive way, and we suggest
+to do it that way.
 
 Now, we can create an `index` handler in `my-webapp.handlers.people`:
 
@@ -120,8 +153,43 @@ Now, we can create an `index` handler in `my-webapp.handlers.people`:
    :widgets {:main-content 'my-webapp.widgets.people/index-content}})
 ```
 
+Handler now returns `:render :html` which instructs responder to render
+response as HTML, and inject `index-content` widget in place of
+`main-content` in the layout. You can jump back to [Layout section](#toc_3)
+to check what `main-content` looks like.
 
-### Adding Handler
+### Adding Snippet
+
+Now, let's move to widget and snippet definition. In order to create a
+widget, we should first have snippet in place, since it's a view part
+for it.
+
+Snippet consists of two parts:
+
+  * html code
+  * enlive snippet definition
+
+If you'd like to learn more about Enlive, you can jump straight to
+[Enlive guide](https://github.com/cgrand/enlive/blob/master/README.md#quickstart-tutorial).
+
+<p class="text-muted">./resources/templates/people/index.html</p>
+```html
+<div snippet="content">
+  <h1>Address Book</h1>
+  <table snippet="people-list">
+    <tr class="person" snippet="people-list-item">
+      <td>${name}</td>
+      <td>${address}</td>
+      <td>${phone}</td>
+    </tr>
+  </table>
+</div>
+```
+
+In order to make it easier to write Enlive templates, we're using
+auto-selectors. For that, you can add `snippet` attribute to your
+element. For example, `snippet="people-list` will generate a
+`*people-list` selector that will be availble during snippet definition:
 
 <p class="text-muted">./src/my_webapp/handlers/people.clj</p>
 ```clj
@@ -130,22 +198,46 @@ Now, we can create an `index` handler in `my-webapp.handlers.people`:
             [clojurewerkz.gizmo.enlive :refer [defsnippet within]]))
 
 (defsnippet index-snippet "templates/people/index.html"
-  [*index-content]
-  [env])
-
+  [*content] ;; Top-level selector, specifies root HTML element for the snippet
+  [people]
+  (within *people-list [*people-list-item html/first-of-type]) ;; HTML selector that takes item from the list
+          (html/clone-for [person people] ;; Clone list item for each person
+                          [html/any-node] (html/replace-vars person))) ;; Replace dollar-escaped variables (like ${name}) for items in person hash
 ```
 
-<p class="text-muted">./resources/templates/people/index.html</p>
-```html
-<table snippet="people-list">
-  <tr class="person">
-    <td>%{name}</td>
-    <td>%{address}</td>
-    <td>%{phone}</td>
-  </tr>
-</table>
+### Adding a Widget
+
+Widget is a point that ties a `snippet` and request environment
+together.
+
+Widget consists of two parts: `view` and `fetch`. `fetch` is a
+function that receives a complete environment from `handler`.
+
+`fetch` is a function that receives an environment and runs some code,
+potentially involving disk or network I/O. Sometimes `fetch` is used
+just to get a part of environment that's applicable for a particular
+view. This is especially useful when you need to reuse some entry
+fetched from database between multiple widgets.
+
+We recommend using Enlive for views, but `view` can return a string with
+HTML elements generated by any other rendering engine, like Stencil,
+Hiccup or your own HTML generation library. In our example, view will be
+a snippet we just declared.
+
+```clj
+(ns my-webapp.widgets.people
+    (:require [clojurewerkz.gizmo.widget :refer [defwidget]]
+              [my-webapp.snippets.people :as snippets]))
+
+(defwidget index-content
+  :view snippets/index-snippet
+  ;; For simplicity, we'll hardcode the items
+  :fetch (fn [_] [{:id 1 :name "Alex" :address "Main Street 123" :phone "+1 123 123 12"}
+                  {:id 2 :name "Robert" :address "Other Street 544" :phone "+1 123 123 12"}]))
 ```
 
+Now, all everything is ready. You can navigate to
+`http://localhost:8080/people` and check out the results.
 
 ## Project structure
 

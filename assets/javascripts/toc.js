@@ -47,12 +47,10 @@ $(document).ready(function() {
 
   $('#side-navigation').on('activate.bs.scrollspy', function (e) {
     var parent = $(e.target).parent().parent()[0];
-
-
     if (parent.tagName == "LI") {
-      $(parent).addClass("active")
+      $(parent).addClass("active");
     }
 
-  })
+  });
 
 });
