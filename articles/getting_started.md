@@ -191,7 +191,7 @@ auto-selectors. For that, you can add `snippet` attribute to your
 element. For example, `snippet="people-list` will generate a
 `*people-list` selector that will be availble during snippet definition:
 
-<p class="text-muted">./src/my_webapp/handlers/people.clj</p>
+<p class="text-muted">./src/my_webapp/snippets/people.clj</p>
 ```clj
 (ns my-webapp.snippets.people
   (:require [net.cgrand.enlive-html :as html]
